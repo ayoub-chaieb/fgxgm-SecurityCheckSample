@@ -1,24 +1,24 @@
 FROM node:25.2.1-alpine3.21
-
 WORKDIR /app
 
-# Ensure package index is fresh and upgrade busybox (robust) or try pin (fallback)
-RUN apk update \
-  && (apk add --no-cache busybox=1.37.0-r14 || apk upgrade busybox) \
-  && apk --no-cache add ca-certificates
+# Try to install the exact patched packages, else fallback to upgrading any busybox packages
+RUN set -eux; \
+    apk update; \
+    (apk add --no-cache \
+       busybox=1.37.0-r14 \
+       busybox-binsh=1.37.0-r14 \
+       busybox-ssl_client=1.37.0-r14 \
+     || apk upgrade busybox busybox-binsh busybox-ssl_client)
 
-# Copy package files first to leverage Docker layer cache
+# Copy dependency files first to cache layers
 COPY package*.json ./
 
-# Use npm ci for deterministic installs (falls back to npm install if lockfile missing)
+# Install dependencies (use npm ci if lockfile exists)
 RUN if [ -f package-lock.json ]; then npm ci --only=production; else npm install --production; fi
 
-# Copy app sources (after deps)
+# Copy app and run as non-root
 COPY . .
-
-# Optional: create non-root user and drop privileges
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup \
-  && chown -R appuser:appgroup /app
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup && chown -R appuser:appgroup /app
 USER appuser
 
 EXPOSE 8080
